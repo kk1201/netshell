@@ -11,43 +11,33 @@
 
 #pragma comment(lib, "Ws2_32.lib")
 
-void get_msg_text(DWORD, char**);
+static void get_msg_text(DWORD, char**);
 
-int get_info_example(char* address)
+int connect_socket(char* server_address)
 {
-    struct addrinfo* ps_address;
-    void* pv_address;
+    int i_status;
+    int sockfd = INVALID_SOCKET;
+    int i_addrlen;
     char* nc_error;
     DWORD dw_error;
-    struct addrinfo s_hints;
-    char ac_ipstr[INET6_ADDRSTRLEN];
-    struct sockaddr_in* ps_ipv4;
-    struct sockaddr_in6* ps_ipv6;
-    char* pc_ipver;
-    struct addrinfo* ps_res;
-    int i_status;
     WSADATA s_wsaData;
+    struct addrinfo s_hints;
+    struct addrinfo* ps_res;
+    struct addrinfo* ps_address;
+    struct addrinfo* ps_servinfo;
+    char ac_ipstr[INET6_ADDRSTRLEN] = { 0 };
+    char ac_portstr[64];
 
     i_status = WSAStartup(MAKEWORD(2, 2), &s_wsaData);
 
-    if (i_status != 0)
-    {
+    if (i_status != 0) {
         dw_error = (DWORD)i_status;
         get_msg_text(dw_error, &nc_error);
-        fprintf(stderr, "WSAStartup failed with code %d.\n", i_status);
+        fprintf(stderr, __FUNCTION__": WSAStartup failed with code %d.\n", i_status);
         fprintf(stderr, "%s\n", nc_error);
         LocalFree(nc_error);
-
-        return 2;
-    }
-
-    if (LOBYTE(s_wsaData.wVersion) < 2 ||
-        HIBYTE(s_wsaData.wVersion) < 2)
-    {
-        fprintf(stderr, "Version 2.2 of Winsock is not available.\n");
-        WSACleanup();
-
-        return 3;
+        
+        return -2;
     }
 
     memset(&s_hints, 0, sizeof(s_hints));
@@ -71,36 +61,70 @@ int get_info_example(char* address)
         ps_address != NULL;
         ps_address = ps_address->ai_next)
     {
-        /* Get the pointer to the address itself (different fields in IPv4 and IPv6): */
-        if (ps_address->ai_family == AF_INET) // IPv4
-        {
-            ps_ipv4 = (struct sockaddr_in*)ps_address->ai_addr;
-            pv_address = &(ps_ipv4->sin_addr);
-            pc_ipver = "IPv4";
-        }
-        else // IPv6
-        {
-            ps_ipv6 = (struct sockaddr_in6*)ps_address->ai_addr;
-            pv_address = &(ps_ipv6->sin6_addr);
-            pc_ipver = "IPv6";
-        }
-        /* Convert the IP to a string and print it:                                   */
-        inet_ntop(ps_address->ai_family, pv_address, ac_ipstr, sizeof(ac_ipstr));
+        if (ps_address->ai_family == AF_INET6) continue;
 
-        printf("  %s: %s\n", pc_ipver, ac_ipstr);
+        sockfd = socket(ps_address->ai_family, ps_address->ai_socktype,
+            ps_address->ai_protocol);
+        if (sockfd == INVALID_SOCKET)
+        {
+            dw_error = (DWORD)WSAGetLastError();
+            get_msg_text(dw_error,
+                &nc_error);
+            fprintf(stderr, __FUNCTION__": socket failed with code %ld.\n", dw_error);
+            fprintf(stderr, "%s\n", nc_error);
+            LocalFree(nc_error);
+
+            continue;
+        }
+
+        inet_ntop(ps_address->ai_family, &((struct sockaddr_in*)ps_address->ai_addr)->sin_addr, ac_ipstr, sizeof(ac_ipstr));
+        snprintf(ac_portstr, sizeof(ac_portstr), "%d", ntohs(((struct sockaddr_in*)ps_address->ai_addr)->sin_port));
+        printf("Trying connection to %s:%s socket %d\n", ac_ipstr, ac_portstr, sockfd);
+        
+
+        i_addrlen = (int)ps_address->ai_addrlen;
+        i_status = connect(sockfd, ps_address->ai_addr, ps_address->ai_addrlen);
+
+        if (i_status == SOCKET_ERROR)
+        {
+            dw_error = (DWORD)WSAGetLastError();
+            get_msg_text(dw_error,
+                &nc_error);
+            fprintf(stderr, __FUNCTION__": connect failed with code %ld.\n", dw_error);
+            fprintf(stderr, "%s\n", nc_error);
+            LocalFree(nc_error);
+            closesocket(sockfd);
+
+            continue;
+        }
+
+        return sockfd;
     }
 
-    inet_ntop(ps_res->ai_family, &((struct sockaddr_in*)(ps_res->ai_addr))->sin_addr, ac_ipstr, sizeof(ac_ipstr));
-    printf("Hostnames for %s:\n\n", ac_ipstr);
-    CHAR nodeBuffer[NI_MAXHOST] = { 0 };
-    getnameinfo(ps_res->ai_addr, ps_res->ai_addrlen, nodeBuffer, sizeof(nodeBuffer), NULL, 0, 0);
-    printf("%s\n", nodeBuffer);
+    return -1;
+}
+
+void cleanup_socket(int sockfd)
+{
+    if (sockfd > 0) {
+        shutdown(sockfd, SD_SEND);
+        closesocket(sockfd);
+    }
 
     WSACleanup();
+}
 
-    freeaddrinfo(ps_res);
+int send_socket(int sockfd, void* data, size_t data_size)
+{
+    int i_status = 0;
+    if ((i_status = send(sockfd, data, data_size, 0)) <= 0) {
+        fprintf(stderr, "Send failed with %d\n", i_status);
+    }
+    else {
+        printf("Sent with %d bytes\n", i_status);
+    }
 
-    return 0;
+    return i_status;
 }
 static void get_msg_text(DWORD dw_error, char** pnc_msg)
 {
