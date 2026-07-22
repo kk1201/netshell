@@ -1,6 +1,8 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+#define COMM_PORT "4268"
+
 int get_tcp_socket( void );
 int connect_socket(char*);
 int listen_socket(char* port);

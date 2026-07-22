@@ -55,24 +55,21 @@ int get_info_example(char* address)
     s_hints.ai_family = AF_UNSPEC;
     s_hints.ai_socktype = SOCK_STREAM;
 
-    i_status = getaddrinfo(address, NULL, &s_hints, &ps_res);
-
-    if (i_status != 0)
-    {
+    i_status = getaddrinfo(server_address, COMM_PORT, &s_hints, &ps_servinfo);
+    if (i_status != 0) {
         dw_error = (DWORD)WSAGetLastError();
-        get_msg_text(dw_error,
-            &nc_error);
-        fprintf(stderr, "getaddrinfo failed with code %ld.\n", dw_error);
+        get_msg_text(dw_error, &nc_error);
+        fprintf(stderr, __FUNCTION__": getaddrinfo failed with code %ld.\n", dw_error);
         fprintf(stderr, "%s\n", nc_error);
         LocalFree(nc_error);
         WSACleanup();
 
-        return 4;
+        return -4;
     }
 
-    printf("IP addresses for %s:\n\n", address);
-
-    for (ps_address = ps_res; ps_address != NULL; ps_address = ps_address->ai_next)
+    for (ps_address = ps_servinfo;
+        ps_address != NULL;
+        ps_address = ps_address->ai_next)
     {
         /* Get the pointer to the address itself (different fields in IPv4 and IPv6): */
         if (ps_address->ai_family == AF_INET) // IPv4
@@ -105,8 +102,7 @@ int get_info_example(char* address)
 
     return 0;
 }
-
-void get_msg_text(DWORD dw_error, char** pnc_msg)
+static void get_msg_text(DWORD dw_error, char** pnc_msg)
 {
     DWORD dw_flags;
     dw_flags = FORMAT_MESSAGE_ALLOCATE_BUFFER
